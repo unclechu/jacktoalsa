@@ -237,7 +237,7 @@ int init_alsa() {
     fprintf(stdout, "ALSA: set playback parameters\n");
     res = snd_pcm_set_params( playback_handle, alsa_bit_depth,
                               SND_PCM_ACCESS_RW_INTERLEAVED,
-                              num_in_channels, sample_rate, 1, 5000000);
+                              num_in_channels, sample_rate, 1, 0);
     if (res < 0)
         fprintf(stderr, "ALSA: cannot set playback parameters: %s\n", snd_strerror(res));
 
@@ -253,7 +253,7 @@ int init_alsa() {
     fprintf(stdout, "ALSA: set capture parameters\n");
     res = snd_pcm_set_params( capture_handle, alsa_bit_depth,
                               SND_PCM_ACCESS_RW_INTERLEAVED,
-                              num_out_channels, sample_rate, 1, 5000000);
+                              num_out_channels, sample_rate, 1, 0);
     if (res < 0)
         fprintf(stderr, "ALSA: cannot set capture parameters: %s\n", snd_strerror(res));
 
