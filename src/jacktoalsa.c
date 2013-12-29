@@ -10,7 +10,6 @@
  *   set hardware params for custom alsa card
  *   custom num of outs and ins channels
  *   watch for system:playback and system:capture and forward to alsa
- *   optimize alsa_phase()
  */
 
 #include <stdlib.h>
@@ -40,24 +39,17 @@ snd_pcm_t *alsa_capture_handle = NULL;
 char alsa_card_playback[128] = "default";
 char alsa_card_capture[128] = "default";
 snd_pcm_format_t alsa_bit_depth = SND_PCM_FORMAT_S16;
-short *inbuf16bit = NULL;
-short *outbuf16bit = NULL;
+int16_t *inbuf16bit = NULL;
+int16_t *outbuf16bit = NULL;
 bool alsa_init = false;
 
-double alsa_phase(float phase) {
-    float value;
-    double start, end;
-
-    if (alsa_bit_depth == SND_PCM_FORMAT_S16) {
-        value = phase * 32767.0;
-        start = -32767;
-        end = +32768;
-    } else {
-        fprintf(stderr, "Unsupported bit depth of ALSA (in alsa_phase)\n");
-        exit(EXIT_FAILURE);
-    }
-
-    return 0.5 * ( fabs(value-start) + (start+end) - fabs(value-end) );
+static inline int16_t float_to_int16(float v) {
+    if (v >= 1.0)
+        return 32767;
+    else if (v <= -1.0)
+        return -32768;
+    else
+        return floorf(v * 32768.0);
 }
 
 int jack_process(jack_nframes_t nframes, void *arg) {
@@ -85,8 +77,10 @@ int jack_process(jack_nframes_t nframes, void *arg) {
     for ( bufval = 0, n = 0;
           bufval < (nframes * num_in_channels);
           bufval = (bufval + num_in_channels), n++ ) {
-        for (channel=0; channel<num_in_channels; channel++)
-            inbuf16bit[bufval + channel] = (short)alsa_phase(inputs_buf[channel][n]);
+        if (alsa_bit_depth == SND_PCM_FORMAT_S16) {
+            for (channel=0; channel<num_in_channels; channel++)
+                inbuf16bit[bufval + channel] = float_to_int16(inputs_buf[channel][n]);
+        }
     }
 
     res = snd_pcm_writei(alsa_playback_handle, inbuf16bit, nframes);

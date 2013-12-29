@@ -1,5 +1,5 @@
 NAME = jacktoalsa
-LIBS = `pkg-config --cflags --libs jack alsa`
+LIBS = `pkg-config --cflags --libs jack alsa` -lm
 
 meta-$(NAME): clean bin
 	mkdir build
