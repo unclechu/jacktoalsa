@@ -8,7 +8,6 @@
  * TODO:
  *   alsa capture
  *   set hardware params for custom alsa card
- *   custom alsa card for out and in
  *   custom num of outs and ins channels
  *   watch for system:playback and system:capture and forward to alsa
  *   optimize alsa_phase()
@@ -264,6 +263,8 @@ int init_alsa() {
 }
 
 char alsa_card_pfx[] = "--alsa-card=";
+char alsa_card_playback_pfx[] = "--alsa-card-playback=";
+char alsa_card_capture_pfx[] = "--alsa-card-capture=";
 char jack_client_name_pfx[] = "--jack-client=";
 char usage[] = "\n"
 "USAGE\n"
@@ -272,7 +273,7 @@ char usage[] = "\n"
 "-h, --help\n"
 "    Show this usage information.\n"
 "\n"
-"%sNAME\n"
+"%sNAME, %sNAME, %sNAME\n"
 "    Set specific ALSA card name. Also you can use ALSA_CARD environment\n"
 "    variable.\n\n"
 "    Default value: \"%s\"\n\n"
@@ -313,15 +314,12 @@ int main(int argc, char **argv) {
     int i;
     char argval[128];
     if (argc > 1) {
-        char *new_usage = malloc( sizeof(usage)
-            + (sizeof(alsa_card_pfx) * 4)
-            + (sizeof(alsa_card_playback) * 2)
-            + (sizeof(jack_client_name_pfx) * 3)
-            + (sizeof(jack_client_name) * 2) );
+        char *new_usage = malloc( sizeof(usage) + (128 * 13) );
         sprintf( new_usage, usage,
+                 alsa_card_pfx, alsa_card_playback_pfx, alsa_card_capture_pfx,
+                 alsa_card_playback,
                  alsa_card_pfx, alsa_card_playback,
-                 alsa_card_pfx, alsa_card_playback,
-                 alsa_card_pfx, alsa_card_pfx,
+                 alsa_card_playback_pfx, alsa_card_capture_pfx,
                  jack_client_name_pfx, jack_client_name,
                  jack_client_name_pfx, jack_client_name,
                  jack_client_name_pfx );
@@ -333,6 +331,12 @@ int main(int argc, char **argv) {
                 strcpy(alsa_card_playback, argval);
                 strcpy(alsa_card_capture, argval);
                 fprintf(stdout, "Custom ALSA card from arguments: \"%s\"\n", argval);
+            } else if (catch_arg(argval, alsa_card_playback_pfx, argv[i])) {
+                strcpy(alsa_card_playback, argval);
+                fprintf(stdout, "Custom ALSA playback card from arguments: \"%s\"\n", argval);
+            } else if (catch_arg(argval, alsa_card_capture_pfx, argv[i])) {
+                strcpy(alsa_card_capture, argval);
+                fprintf(stdout, "Custom ALSA capture card from arguments: \"%s\"\n", argval);
             } else if (catch_arg(argval, jack_client_name_pfx, argv[i])) {
                 strcpy(jack_client_name, argval);
                 fprintf(stdout, "Custom JACK client name from arguments: \"%s\"\n", jack_client_name);
