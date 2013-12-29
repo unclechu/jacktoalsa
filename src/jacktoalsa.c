@@ -7,9 +7,8 @@
  *
  * TODO:
  *   alsa capture
+ *   set hardware params for custom alsa card
  *   custom alsa card for out and in
- *   custom jack server
- *   custom client name
  *   custom num of outs and ins channels
  *   watch for system:playback and system:capture and forward to alsa
  *   optimize alsa_phase()
@@ -22,7 +21,7 @@
 #include <alsa/asoundlib.h>
 #include <math.h>
 
-// default: stereo-mode
+// default: stereo
 short num_out_channels = 2; // jack-outputs, alsa-inputs
 short num_in_channels = 2; // jack-inputs, alsa-outputs
 
@@ -37,9 +36,10 @@ jack_default_audio_sample_t **outputs_buf = NULL;
 jack_default_audio_sample_t **inputs_buf = NULL;
 
 // alsa
-snd_pcm_t *playback_handle = NULL;
-snd_pcm_t *capture_handle = NULL;
-char alsa_card[128] = "default";
+snd_pcm_t *alsa_playback_handle = NULL;
+snd_pcm_t *alsa_capture_handle = NULL;
+char alsa_card_playback[128] = "default";
+char alsa_card_capture[128] = "default";
 snd_pcm_format_t alsa_bit_depth = SND_PCM_FORMAT_S16;
 short *inbuf16bit = NULL;
 short *outbuf16bit = NULL;
@@ -90,17 +90,17 @@ int jack_process(jack_nframes_t nframes, void *arg) {
             inbuf16bit[bufval + channel] = (short)alsa_phase(inputs_buf[channel][n]);
     }
 
-    res = snd_pcm_writei(playback_handle, inbuf16bit, nframes);
+    res = snd_pcm_writei(alsa_playback_handle, inbuf16bit, nframes);
     if (res == -EPIPE) { // heal the overruns
-        res = snd_pcm_recover(playback_handle, res, 1);
+        res = snd_pcm_recover(alsa_playback_handle, res, 1);
         if (res >= 0)
-            res = snd_pcm_writei(playback_handle, inbuf16bit, nframes);
+            res = snd_pcm_writei(alsa_playback_handle, inbuf16bit, nframes);
     }
 
     // get from alsa-capture and write to jack-output
     // FIXME TODO
     //char buf[16000];
-    //res = snd_pcm_readi(capture_handle, buf, nframes);
+    //res = snd_pcm_readi(alsa_capture_handle, buf, nframes);
 
     return 0;
 }
@@ -229,13 +229,13 @@ int init_alsa() {
     // playback
 
     fprintf(stdout, "ALSA: opening pcm playback\n");
-    res = snd_pcm_open(&playback_handle, alsa_card, SND_PCM_STREAM_PLAYBACK, 0);
+    res = snd_pcm_open(&alsa_playback_handle, alsa_card_playback, SND_PCM_STREAM_PLAYBACK, 0);
     if (res < 0)
         fprintf(stderr, "ALSA: cannot open pcm playback \"%s\": %s\n",
-                         alsa_card, snd_strerror(res) );
+                         alsa_card_playback, snd_strerror(res) );
 
     fprintf(stdout, "ALSA: set playback parameters\n");
-    res = snd_pcm_set_params( playback_handle, alsa_bit_depth,
+    res = snd_pcm_set_params( alsa_playback_handle, alsa_bit_depth,
                               SND_PCM_ACCESS_RW_INTERLEAVED,
                               num_in_channels, sample_rate, 1, 0);
     if (res < 0)
@@ -245,13 +245,13 @@ int init_alsa() {
     // capture
 
     fprintf(stdout, "ALSA: opening pcm capture\n");
-    res = snd_pcm_open(&capture_handle, alsa_card, SND_PCM_STREAM_CAPTURE, 0);
+    res = snd_pcm_open(&alsa_capture_handle, alsa_card_capture, SND_PCM_STREAM_CAPTURE, 0);
     if (res < 0)
         fprintf(stderr, "ALSA: cannot open pcm capture \"%s\": %s\n",
-                         alsa_card, snd_strerror(res) );
+                         alsa_card_capture, snd_strerror(res) );
 
     fprintf(stdout, "ALSA: set capture parameters\n");
-    res = snd_pcm_set_params( capture_handle, alsa_bit_depth,
+    res = snd_pcm_set_params( alsa_capture_handle, alsa_bit_depth,
                               SND_PCM_ACCESS_RW_INTERLEAVED,
                               num_out_channels, sample_rate, 1, 0);
     if (res < 0)
@@ -263,7 +263,87 @@ int init_alsa() {
     return 0;
 }
 
-int main() {
+char alsa_card_pfx[] = "--alsa-card=";
+char jack_client_name_pfx[] = "--jack-client=";
+char usage[] = "\n"
+"USAGE\n"
+"=====\n"
+"\n"
+"-h, --help\n"
+"    Show this usage information.\n"
+"\n"
+"%sNAME\n"
+"    Set specific ALSA card name. Also you can use ALSA_CARD environment\n"
+"    variable.\n\n"
+"    Default value: \"%s\"\n\n"
+"    Examples:\n"
+"        %s%s\n"
+"        %shw:0\n"
+"        %shw:USB\n"
+"\n"
+"%sNAME\n"
+"    Set specific JACK client name.\n\n"
+"    Default value: \"%s\"\n\n"
+"    Examples:\n"
+"        %s%s\n"
+"        %salsa\n"
+"\n";
+
+bool catch_arg(char *target, char *prefix, char *arg) {
+    int i, n;
+    if (strlen(arg) < strlen(prefix)) return false;
+
+    for (i=0; i<strlen(prefix); i++) {
+        if (arg[i] != prefix[i]) return false;
+    }
+
+    for (i=0, n=strlen(prefix); ; i++, n++) {
+        if (i >= sizeof(target)-1) {
+            target[i] = '\0';
+        }
+        target[i] = arg[n];
+        if (arg[n] == '\0') break;
+    }
+
+    return true;
+}
+
+int main(int argc, char **argv) {
+    // parsing arguments
+    int i;
+    char argval[128];
+    if (argc > 1) {
+        char *new_usage = malloc( sizeof(usage)
+            + (sizeof(alsa_card_pfx) * 4)
+            + (sizeof(alsa_card_playback) * 2)
+            + (sizeof(jack_client_name_pfx) * 3)
+            + (sizeof(jack_client_name) * 2) );
+        sprintf( new_usage, usage,
+                 alsa_card_pfx, alsa_card_playback,
+                 alsa_card_pfx, alsa_card_playback,
+                 alsa_card_pfx, alsa_card_pfx,
+                 jack_client_name_pfx, jack_client_name,
+                 jack_client_name_pfx, jack_client_name,
+                 jack_client_name_pfx );
+        for (i=1; i<argc; i++) {
+            if (strcmp("--help", argv[i]) == 0 || strcmp("-h", argv[i]) == 0) {
+                fprintf(stdout, "%s", new_usage);
+                return EXIT_SUCCESS;
+            } else if (catch_arg(argval, alsa_card_pfx, argv[i])) {
+                strcpy(alsa_card_playback, argval);
+                strcpy(alsa_card_capture, argval);
+                fprintf(stdout, "Custom ALSA card from arguments: \"%s\"\n", argval);
+            } else if (catch_arg(argval, jack_client_name_pfx, argv[i])) {
+                strcpy(jack_client_name, argval);
+                fprintf(stdout, "Custom JACK client name from arguments: \"%s\"\n", jack_client_name);
+            } else {
+                fprintf(stderr, "Unknown argument: \"%s\"\n", argv[i]);
+                fprintf(stdout, "%s", new_usage);
+                return EXIT_FAILURE;
+            }
+        }
+    }
+
     if (init_jack() != 0) {
         fprintf(stderr, "Cannot initialize JACK\n");
         return EXIT_FAILURE;
@@ -272,8 +352,10 @@ int main() {
     fprintf(stdout, "Start main loop...\n");
     while (1) {} // main loop
 
-    snd_pcm_drain(playback_handle);
-    snd_pcm_close(playback_handle);
+    snd_pcm_drain(alsa_playback_handle);
+    snd_pcm_close(alsa_playback_handle);
+    snd_pcm_drain(alsa_capture_handle);
+    snd_pcm_close(alsa_capture_handle);
     jack_client_close(jack_client);
 
     return EXIT_SUCCESS;
