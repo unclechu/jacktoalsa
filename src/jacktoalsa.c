@@ -43,7 +43,7 @@ int16_t *inbuf16bit = NULL;
 int16_t *outbuf16bit = NULL;
 bool alsa_init = false;
 
-static inline int16_t float_to_int16(float v) {
+inline int16_t float_to_int16(float v) {
     if (v >= 1.0)
         return 32767;
     else if (v <= -1.0)
