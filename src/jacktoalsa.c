@@ -6,7 +6,6 @@
  * License: GPLv3
  *
  * TODO:
- *   alsa capture
  *   set hardware params for custom alsa card
  *   custom num of outs and ins channels
  *   watch for system:playback and system:capture and forward to alsa
@@ -52,6 +51,10 @@ inline int16_t float_to_int16(float v) {
         return floorf(v * 32768.0);
 }
 
+inline float int16_to_float(int16_t v) {
+    return v / 32768.0;
+}
+
 int jack_process(jack_nframes_t nframes, void *arg) {
     if (alsa_init == false) {
         exit(EXIT_FAILURE);
@@ -74,13 +77,12 @@ int jack_process(jack_nframes_t nframes, void *arg) {
 
     // get from jack-input and write to alsa-playback
 
-    for ( bufval = 0, n = 0;
-          bufval < (nframes * num_in_channels);
-          bufval = (bufval + num_in_channels), n++ ) {
-        if (alsa_bit_depth == SND_PCM_FORMAT_S16) {
+    if (alsa_bit_depth == SND_PCM_FORMAT_S16) {
+        for ( bufval = 0, n = 0;
+              bufval < (nframes * num_in_channels);
+              bufval = (bufval + num_in_channels), n++ )
             for (channel=0; channel<num_in_channels; channel++)
                 inbuf16bit[bufval + channel] = float_to_int16(inputs_buf[channel][n]);
-        }
     }
 
     res = snd_pcm_writei(alsa_playback_handle, inbuf16bit, nframes);
@@ -91,9 +93,16 @@ int jack_process(jack_nframes_t nframes, void *arg) {
     }
 
     // get from alsa-capture and write to jack-output
-    // FIXME TODO
-    //char buf[16000];
-    //res = snd_pcm_readi(alsa_capture_handle, buf, nframes);
+
+    res = snd_pcm_readi(alsa_capture_handle, outbuf16bit, nframes);
+    if (res == -EPIPE) snd_pcm_prepare(alsa_capture_handle); // heal the overruns
+    if (alsa_bit_depth == SND_PCM_FORMAT_S16) {
+        for ( bufval = 0, n = 0;
+              bufval < (nframes * num_out_channels);
+              bufval = (bufval + num_out_channels), n++ )
+            for (channel=0; channel<num_out_channels; channel++)
+                outputs_buf[channel][n] = int16_to_float(outbuf16bit[bufval + channel]);
+    }
 
     return 0;
 }
