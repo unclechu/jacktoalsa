@@ -13,7 +13,6 @@
  * FIXME:
  *   dropouts when no playback ports
  *   set hardware params for custom alsa card
- *   sample rate change plug
  *   change buffer size
  */
 
@@ -172,8 +171,16 @@ int jack_new_buffer(jack_nframes_t nframes, void *arg) {
     return 0;
 }
 
-int jack_sample_rate_plug(uint32_t sample_rate, void *arg) {
-    fprintf(stderr, "JACK: changing of sample rate is unsupported\n");
+int jack_sample_rate(uint32_t new_sample_rate, void *arg) {
+    if (sample_rate == 0) {
+        sample_rate = new_sample_rate;
+        return 0;
+    }
+
+    if (sample_rate != new_sample_rate) {
+        fprintf(stderr, "JACK: changing of sample rate is unsupported\n");
+        exit(EXIT_FAILURE);
+    }
 }
 
 int init_jack() {
@@ -245,13 +252,13 @@ int init_jack() {
     jack_set_process_callback(jack_client, jack_process, 0);
 
     fprintf(stdout, "JACK: binding sample rate change callback\n");
-    jack_set_sample_rate_callback(jack_client, jack_sample_rate_plug, 0);
+    jack_set_sample_rate_callback(jack_client, jack_sample_rate, 0);
 
     fprintf(stdout, "JACK: bind callback to set buffer size\n");
     jack_set_buffer_size_callback(jack_client, jack_new_buffer, 0);
 
     fprintf(stdout, "JACK: getting sample rate\n");
-    sample_rate = jack_get_sample_rate(jack_client);
+    jack_sample_rate(jack_get_sample_rate(jack_client), 0);
 
     fprintf(stdout, "JACK: getting buffer size\n");
     jack_new_buffer(jack_get_buffer_size(jack_client), 0);
