@@ -8,10 +8,13 @@
  * TODO:
  *   32 and 24 bit depth
  *   watch for system:playback and system:capture and forward to alsa
+ *   restart after many overruns
  *
  * FIXME:
  *   dropouts when no playback ports
  *   set hardware params for custom alsa card
+ *   sample rate change plug
+ *   change buffer size
  */
 
 #include <stdlib.h>
@@ -21,6 +24,7 @@
 #include <alsa/asoundlib.h>
 #include <math.h>
 #include <unistd.h>
+#include <stdint.h>
 
 // default: stereo
 short num_capture_channels = 2; // jack-outputs, alsa-inputs
@@ -41,22 +45,33 @@ snd_pcm_t *alsa_playback_handle = NULL;
 snd_pcm_t *alsa_capture_handle = NULL;
 char alsa_card_playback[128] = "default";
 char alsa_card_capture[128] = "default";
-snd_pcm_format_t alsa_bit_depth = SND_PCM_FORMAT_S16;
+snd_pcm_format_t alsa_bit_depth = SND_PCM_FORMAT_S32;
 int16_t *playback_buf16bit = NULL;
 int16_t *capture_buf16bit = NULL;
+int32_t *playback_buf32bit = NULL; // also for 24bit
+int32_t *capture_buf32bit = NULL; // also for 24bit
 
 inline int16_t float_to_int16(float v) {
-    if (v >= 1.0)
-        return 32767;
-    else if (v <= -1.0)
-        return -32768;
-    else
-        return floorf(v * 32768.0);
+    if (v >= 1.0) return 32767;
+    else if (v <= -1.0) return -32768;
+    else return floorf(v * 32768.0);
 }
 
-inline float int16_to_float(int16_t v) {
-    return v / 32768.0;
+inline int32_t float_to_int24(float v) {
+    if (v >= 1.0) return 4194303;
+    else if (v <= - 1.0) return -4194304;
+    else return floorf(v * 4194304.0);
 }
+
+inline int32_t float_to_int32(float v) {
+    if (v >= 1.0) return 2147483647;
+    else if (v <= - 1.0) return -2147483648;
+    else return floorf(v * 2147483648.0);
+}
+
+inline float int16_to_float(int16_t v) { return v / 32768.0; }
+inline float int24_to_float(int32_t v) { return v / 4194304.0; }
+inline float int32_to_float(int32_t v) { return v / 2147483648.0; }
 
 int jack_process(jack_nframes_t nframes, void *arg) {
     int res;
@@ -69,15 +84,23 @@ int jack_process(jack_nframes_t nframes, void *arg) {
                 jack_port_get_buffer(playback_ports[channel], nframes);
         }
 
-        if (alsa_bit_depth == SND_PCM_FORMAT_S16) {
-            for ( bufval = 0, n = 0;
-                  bufval < (nframes * num_playback_channels);
-                  bufval = (bufval + num_playback_channels), n++ )
-                for (channel=0; channel<num_playback_channels; channel++)
+        for ( bufval = 0, n = 0;
+              bufval < (nframes * num_playback_channels);
+              bufval = (bufval + num_playback_channels), n++ ) {
+            for (channel=0; channel<num_playback_channels; channel++) {
+                if (alsa_bit_depth == SND_PCM_FORMAT_S16)
                     playback_buf16bit[bufval + channel] = float_to_int16(playback_buf[channel][n]);
+                else if (alsa_bit_depth == SND_PCM_FORMAT_S24)
+                    playback_buf32bit[bufval + channel] = float_to_int24(playback_buf[channel][n]);
+                else // 32
+                    playback_buf32bit[bufval + channel] = float_to_int32(playback_buf[channel][n]);
+            }
         }
+        if (alsa_bit_depth == SND_PCM_FORMAT_S16)
+            res = snd_pcm_writei(alsa_playback_handle, playback_buf16bit, nframes);
+        else // 24 and 32
+            res = snd_pcm_writei(alsa_playback_handle, playback_buf32bit, nframes);
 
-        res = snd_pcm_writei(alsa_playback_handle, playback_buf16bit, nframes);
         if (res == -EPIPE) { // heal the overruns
             res = snd_pcm_recover(alsa_playback_handle, res, 1);
         }
@@ -90,16 +113,25 @@ int jack_process(jack_nframes_t nframes, void *arg) {
                 jack_port_get_buffer(capture_ports[channel], nframes);
         }
 
-        res = snd_pcm_readi(alsa_capture_handle, capture_buf16bit, nframes);
+        if (alsa_bit_depth == SND_PCM_FORMAT_S16)
+            res = snd_pcm_readi(alsa_capture_handle, capture_buf16bit, nframes);
+        else // 24 and 32
+            res = snd_pcm_readi(alsa_capture_handle, capture_buf32bit, nframes);
+
         if (res == -EPIPE) {
             snd_pcm_prepare(alsa_capture_handle); // heal the overruns
         } else {
-            if (alsa_bit_depth == SND_PCM_FORMAT_S16) {
-                for ( bufval = 0, n = 0;
-                      bufval < (nframes * num_capture_channels);
-                      bufval = (bufval + num_capture_channels), n++ )
-                    for (channel=0; channel<num_capture_channels; channel++)
+            for ( bufval = 0, n = 0;
+                  bufval < (nframes * num_capture_channels);
+                  bufval = (bufval + num_capture_channels), n++ ) {
+                for (channel=0; channel<num_capture_channels; channel++) {
+                    if (alsa_bit_depth == SND_PCM_FORMAT_S16)
                         capture_buf[channel][n] = int16_to_float(capture_buf16bit[bufval + channel]);
+                    else if (alsa_bit_depth == SND_PCM_FORMAT_S24)
+                        capture_buf[channel][n] = int24_to_float(capture_buf32bit[bufval + channel]);
+                    else
+                        capture_buf[channel][n] = int32_to_float(capture_buf32bit[bufval + channel]);
+                }
             }
         }
     }
@@ -122,8 +154,18 @@ int jack_new_buffer(jack_nframes_t nframes, void *arg) {
             if (capture_buf16bit != NULL) free(capture_buf16bit);
             capture_buf16bit = malloc( (nframes * sizeof(short)) * num_capture_channels );
         }
+    } else if (alsa_bit_depth == SND_PCM_FORMAT_S24 || alsa_bit_depth == SND_PCM_FORMAT_S32) {
+        if (num_playback_channels > 0) {
+            if (playback_buf32bit != NULL) free(playback_buf32bit);
+            playback_buf32bit = malloc( (nframes * sizeof(short)) * num_playback_channels );
+        }
+
+        if (num_capture_channels > 0) {
+            if (capture_buf32bit != NULL) free(capture_buf32bit);
+            capture_buf32bit = malloc( (nframes * sizeof(short)) * num_capture_channels );
+        }
     } else {
-        fprintf(stderr, "Unsupported bit depth of ALSA (in jack_new_buffer)\n");
+        fprintf(stderr, "Unsupported bit depth of ALSA\n");
         exit(EXIT_FAILURE);
     }
 
@@ -278,6 +320,7 @@ char jack_client_name_pfx[] = "--jack-client=";
 char ports_num_pfx[] = "--ports-num=";
 char playback_ports_pfx[] = "--playback-ports=";
 char capture_ports_pfx[] = "--capture-ports=";
+char bit_depth_pfx[] = "--bit-depth=";
 char usage[] = "\n"
 "USAGE\n"
 "=====\n"
@@ -303,11 +346,19 @@ char usage[] = "\n"
 "\n"
 "--ports-num=NUM, --playback-ports=NUM, --capture-ports=NUM\n"
 "    Set specific number of playback and capture ports.\n\n"
-"    Default value: \"2\" (stereo)\n\n"
+"    Default value: 2 (stereo)\n\n"
 "    Examples:\n"
 "        --ports-num=1 (mono)\n"
 "        --playback-ports=2 (stereo)\n"
 "        --capture-ports=6 (5.1)\n"
+"\n"
+"--bit-depth=NUM\n"
+"    Set specific bit depth.\n\n"
+"    Default value: 32\n\n"
+"    Possible values:\n"
+"        --bit-depth=32\n"
+"        --bit-depth=24\n"
+"        --bit-depth=16\n"
 "\n";
 
 bool catch_arg(char *target, char *prefix, char *arg) {
@@ -368,6 +419,24 @@ int main(int argc, char **argv) {
             } else if (catch_arg(argval, capture_ports_pfx, argv[i])) {
                 num_capture_channels = atoi(argval);
                 fprintf(stdout, "Custom capture ports number from arguments: %d\n", num_capture_channels);
+
+            // bit depth
+            } else if (catch_arg(argval, bit_depth_pfx, argv[i])) {
+                switch (atoi(argval)) {
+                  case 32:
+                    alsa_bit_depth = SND_PCM_FORMAT_S32;
+                    break;
+                  case 24:
+                    alsa_bit_depth = SND_PCM_FORMAT_S24;
+                    break;
+                  case 16:
+                    alsa_bit_depth = SND_PCM_FORMAT_S16;
+                    break;
+                  default:
+                    fprintf(stderr, "Unsupported bit depth value: \"%s\"\n", argval);
+                    return EXIT_FAILURE;
+                }
+                fprintf(stdout, "Custom bit depth from arguments: %d\n", atoi(argval));
 
             // unknown argument
             } else {
