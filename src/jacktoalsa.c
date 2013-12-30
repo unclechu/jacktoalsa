@@ -6,7 +6,6 @@
  * License: GPLv3
  *
  * TODO:
- *   ignoring overruns
  *   32 and 24 bit depth
  *   watch for system:playback and system:capture and forward to alsa
  *
@@ -81,8 +80,6 @@ int jack_process(jack_nframes_t nframes, void *arg) {
         res = snd_pcm_writei(alsa_playback_handle, playback_buf16bit, nframes);
         if (res == -EPIPE) { // heal the overruns
             res = snd_pcm_recover(alsa_playback_handle, res, 1);
-            if (res >= 0)
-                res = snd_pcm_writei(alsa_playback_handle, playback_buf16bit, nframes);
         }
     }
 
@@ -94,14 +91,16 @@ int jack_process(jack_nframes_t nframes, void *arg) {
         }
 
         res = snd_pcm_readi(alsa_capture_handle, capture_buf16bit, nframes);
-        if (res == -EPIPE) snd_pcm_prepare(alsa_capture_handle); // heal the overruns
-
-        if (alsa_bit_depth == SND_PCM_FORMAT_S16) {
-            for ( bufval = 0, n = 0;
-                  bufval < (nframes * num_capture_channels);
-                  bufval = (bufval + num_capture_channels), n++ )
-                for (channel=0; channel<num_capture_channels; channel++)
-                    capture_buf[channel][n] = int16_to_float(capture_buf16bit[bufval + channel]);
+        if (res == -EPIPE) {
+            snd_pcm_prepare(alsa_capture_handle); // heal the overruns
+        } else {
+            if (alsa_bit_depth == SND_PCM_FORMAT_S16) {
+                for ( bufval = 0, n = 0;
+                      bufval < (nframes * num_capture_channels);
+                      bufval = (bufval + num_capture_channels), n++ )
+                    for (channel=0; channel<num_capture_channels; channel++)
+                        capture_buf[channel][n] = int16_to_float(capture_buf16bit[bufval + channel]);
+            }
         }
     }
 
