@@ -6,10 +6,10 @@
  * License: GPLv3
  *
  * TODO:
- *   set hardware params for custom alsa card
  *   custom num of outs and ins channels
- *   watch for system:playback and system:capture and forward to alsa
+ *   set hardware params for custom alsa card
  *   32 and 24 bit depth
+ *   watch for system:playback and system:capture and forward to alsa
  */
 
 #include <stdlib.h>
@@ -18,6 +18,7 @@
 #include <jack/jack.h>
 #include <alsa/asoundlib.h>
 #include <math.h>
+#include <unistd.h>
 
 // default: stereo
 short num_capture_channels = 2; // jack-outputs, alsa-inputs
@@ -359,13 +360,7 @@ int main(int argc, char **argv) {
     }
 
     fprintf(stdout, "Start main loop...\n");
-    while (1) {} // main loop
-
-    snd_pcm_drain(alsa_playback_handle);
-    snd_pcm_close(alsa_playback_handle);
-    snd_pcm_drain(alsa_capture_handle);
-    snd_pcm_close(alsa_capture_handle);
-    jack_client_close(jack_client);
+    sleep(-1);
 
     return EXIT_SUCCESS;
 }
