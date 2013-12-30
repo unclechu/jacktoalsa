@@ -3,16 +3,8 @@
  * Forwarding JACK to ALSA.
  * Start JACK with dummy device and send sound to ALSA via libasound.
  *
+ * Version 0.1
  * License: GPLv3
- *
- * TODO:
- *   watch for system:playback and system:capture and forward to alsa
- *   restart after many overruns
- *
- * FIXME:
- *   dropouts when no playback ports
- *   set hardware params for custom alsa card
- *   change buffer size
  */
 
 #include <stdlib.h>
