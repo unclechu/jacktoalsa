@@ -6,7 +6,6 @@
  * License: GPLv3
  *
  * TODO:
- *   32 and 24 bit depth
  *   watch for system:playback and system:capture and forward to alsa
  *   restart after many overruns
  *
