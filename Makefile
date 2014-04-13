@@ -2,16 +2,16 @@ NAME = jacktoalsa
 INSTALL_PREFIX = /usr/local
 LIBS = `pkg-config --cflags --libs jack alsa` -lm
 
-meta-$(NAME): clean bin
+$(NAME): clean bin
 	mkdir build
-	mv meta-$(NAME) build/meta-$(NAME)
+	mv $(NAME) build/$(NAME)
 
 bin:
-	gcc src/$(NAME).c $(LIBS) -o meta-$(NAME)
+	gcc src/$(NAME).c $(LIBS) -o $(NAME)
 
 clean:
 	rm -rf build $(NAME)
 
-install: meta-$(NAME)
+install: $(NAME)
 	mkdir -p "$(INSTALL_PREFIX)/bin"
-	cp -f build/meta-$(NAME) "$(INSTALL_PREFIX)/bin"
+	cp -f build/$(NAME) "$(INSTALL_PREFIX)/bin"

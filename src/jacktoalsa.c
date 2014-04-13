@@ -1,5 +1,5 @@
 /**
- * Metachronica JACK to ALSA utility
+ * JACK to ALSA utility
  * Forwarding JACK to ALSA.
  * Start JACK with dummy device and send sound to ALSA via libasound.
  *
@@ -22,7 +22,7 @@ short num_playback_channels = 2; // jack-inputs, alsa-outputs
 
 // jack
 jack_client_t *jack_client = NULL;
-char jack_client_name[128] = "meta_jacktoalsa";
+char jack_client_name[128] = "jacktoalsa";
 uint32_t buffer_size = 0;
 uint32_t sample_rate = 0;
 jack_port_t **capture_ports = NULL;
@@ -337,9 +337,9 @@ char usage[] = "\n"
 "\n"
 "--jack-client=NAME\n"
 "    Set specific JACK client name.\n\n"
-"    Default value: \"meta_jacktoalsa\"\n\n"
+"    Default value: \"jacktoalsa\"\n\n"
 "    Examples:\n"
-"        --jack-client=meta_jacktoalsa\n"
+"        --jack-client=jacktoalsa\n"
 "        --jack-client=alsa\n"
 "\n"
 "--ports-num=NUM, --playback-ports=NUM, --capture-ports=NUM\n"
